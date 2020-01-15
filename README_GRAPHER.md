@@ -1,17 +1,18 @@
 # LookML Grapher
 
-As part of this tool suite, we include a LookML grapher--a tool that shows a "network diagram" of the `model - explore - view` relationships. The code will also identify any `orphans` i.e. views not referenced by any models or explores.
+As part of this tool suite, we include a LookML grapher--a tool that shows a "network diagram" of the `model - explore - view - table` relationships. The code will also identify any `orphans` i.e. views not referenced by any models or explores.
 
 For instance, in this output diagram
 
-![](img/graph.png)
+![](img/examplegraph.png)
 
 where the nodes are colored as follows:
 
 - *models*: blue
 - *explores*: green
 - *views*: purple
-- *orphans*: orange,
+- *orphans*: orange
+- *tables*: red,
 
 we can see that the `membership_facts` model has 5 explores. The first explore (`engagement`) references 4 views: `fact_engagement`, `dim_product`, `dim_date`, and `dim_member`. We can also see that there is one orphaned view (called `orphan` in this fake example).
 
