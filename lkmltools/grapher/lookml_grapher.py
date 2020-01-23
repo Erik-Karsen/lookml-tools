@@ -1,13 +1,13 @@
 '''
-    grapher: creates an image showing the relationship among the models, explores and views
+    grapher: creates an image showing the relationship among the models, explores, views and tables
     Authors:
             Carl Anderson (carl.anderson@weightwatchers.com)
 '''
 import glob
 import os
-import re
 import logging
 import datetime
+import re
 from enum import Enum
 import networkx as nx
 import matplotlib
@@ -20,8 +20,8 @@ class NodeType(Enum):
     MODEL = 'model'
     EXPLORE = 'explore'
     VIEW = 'view'
-    TABLE = 'table'
     ORPHAN = 'orphan'
+    TABLE = 'table'
 
 class LookMlGrapher():
     '''A LookML Grapher that parses a set of LookML files specified in some config
@@ -36,11 +36,11 @@ class LookMlGrapher():
         self.config = config
 
         # list of edge pair names
-        self.models_to_explores = []
+        self.explores_to_models = []
         self.views_to_explores = []
-        self.tables_to_views = []
         self.explores_to_explores = []
         self.views_to_views = []
+        self.tables_to_views = []
 
         # dict of node names with their type
         self.node_map = {}
@@ -135,7 +135,7 @@ class LookMlGrapher():
         '''
         g = nx.DiGraph()
         [g.add_node(node_name) for node_name in self.node_map]
-        [g.add_edge(p[0], p[1],weight=4) for p in self.models_to_explores]
+        [g.add_edge(p[0], p[1],weight=4) for p in self.explores_to_models]
         [g.add_edge(p[0], p[1],weight=4) for p in self.views_to_explores]
         [g.add_edge(p[0], p[1],weight=8) for p in self.explores_to_explores]
         [g.add_edge(p[0], p[1],weight=8) for p in self.views_to_views]
@@ -143,10 +143,9 @@ class LookMlGrapher():
         # return a connected subgraph (lineage) if the 'root' nodes were provided
         #if 'roots' in self.config:
         if self.config['roots']!=["*"]:
-            roots = [root.upper() for root in (self.config['roots'])]
-            for root in roots:
-                print(root)
-            nodes = self.get_connected_subgraph(roots)
+            nodes = self.get_connected_subgraph(self.config['roots'])
+            for node in nodes:
+                print(node)
             subg = g.subgraph(nodes)
             return subg
         # return a full graph with lineage for the project
@@ -165,7 +164,7 @@ class LookMlGrapher():
         explore_name = e['name']+'.explore'
         self.node_map[explore_name] = NodeType.EXPLORE
         if m:
-            self.models_to_explores.append((explore_name, m))
+            self.explores_to_models.append((explore_name, m))
         if 'extends' in e:
             # add relationships to the explores that are being extended (inherited)
             for parent in e['extends']:
@@ -191,53 +190,57 @@ class LookMlGrapher():
                 self.node_map[k[key] +'.view'] = NodeType.VIEW
                 self.views_to_explores.append(( k[key] +'.view', explore_name))
 
-    def process_derived_table(self, v):
-        '''extract the schema.table_name referenced by the derived_table and
-        add them to node map and add table-->view
+    def process_sql_text(self, sql_text, view_name):
+        ''' extract the SCHEMA.TABLE referenced by each view within
+        derived_tables and add them to node map add table-->view
         Returns:
             nothing. Side effect is to add to maps
         '''
-        sql_text = ((v['derived_table']['sql']).upper())
-        view_name =v['name']+'.view'
-        all_from = re.findall("FROM \w+[\.]\w+", sql_text)
-        all_join = re.findall("JOIN \w+[\.]\w+", sql_text)
-        for f in all_from:
-            without_from = re.sub("FROM ", "", f)
-            self.node_map[without_from] = NodeType.TABLE
-            self.tables_to_views.append((without_from, view_name))
-        for j in all_join:
-            without_join = re.sub("JOIN ", "", j)
-            self.node_map[without_join] = NodeType.TABLE
-            self.tables_to_views.append((without_join, view_name))
+        tables = []
+        for text in re.findall('FROM \w+\.\w+\.\w+|FROM \w+\.\w+|JOIN \w+\.\w+\.\w+|JOIN \w+\.\w+', sql_text):
+            table = re.sub('FROM |JOIN ', '', text)
+            if re.match('\w+\.\w+\.\w+', table):
+                split_table = table.split('.')
+                tables.append(split_table[1]+'.'+split_table[2])
+            else:
+                tables.append(table)
+        for table in tables:
+            self.node_map[table] = NodeType.TABLE
+            self.tables_to_views.append((table, view_name))
 
     def process_views(self, v):
         '''extract the views referenced by these views and
         add them to node map and add view-->view
+        extract SCHEMA.TABLE referenced by each view and
+        add them to node map add table-->view
         Args:
             v (str): view
         Returns:
             nothing. Side effect is to add to maps
         '''
+        source_tables = []
         view_name =v['name']+'.view'
         self.node_map[view_name] = NodeType.VIEW
-        if 'sql_table_name' in v:
-            table_name = v['sql_table_name']
-            schema_table = table_name.split('.')
-            if len(schema_table) == 3:
-                schema = schema_table[1].upper()
-                table = schema_table[2].upper()
-            else:
-                schema = schema_table[0].upper()
-                table = schema_table[1].upper()
-            self.node_map[schema+'.'+table] = NodeType.TABLE
-            self.tables_to_views.append((schema+'.'+table, view_name))
-        if 'derived_table' in v:
-            self.process_derived_table(v)
         if 'extends' in v:
             # add relationships to the views that are being extended (inherited)
             for parent in v['extends']:
                 self.node_map[parent +'.view'] = NodeType.VIEW
                 self.views_to_views.append((parent +'.view', view_name))
+        if 'sql_table_name' in v:
+            sql_table_name = v['sql_table_name'].upper()
+            if re.match('\w+\.\w+\.\w+|\"\w+\"\.\"\w+\"\.\"\w+\"', sql_table_name):
+                table = re.sub('"', '', sql_table_name)
+                split_table = table.split('.')
+                source_tables.append(split_table[1]+'.'+split_table[2])
+            elif re.match('\w+\.\w+|\"\w+\"\.\"\w+\"', sql_table_name):
+                source_tables.append(re.sub('"', '', sql_table_name))
+            else:
+                self.process_sql_text(sql_table_name, view_name)
+        if 'derived_table' in v:
+            self.process_sql_text(v['derived_table']['sql'].upper(), view_name)
+        for table in source_tables:
+            self.node_map[table] = NodeType.TABLE
+            self.tables_to_views.append((table, view_name))
 
     def process_lookml(self, lookml): 
         '''given a filepath to a LookML file, extract the views, models, explores as the nodes
@@ -270,7 +273,7 @@ class LookMlGrapher():
             Args:
                 globstrings (list): list of globstrings
             Returns:
-                nothing but side effect is that nodes are strored in self.node_map and self.models_to_explores 
+                nothing but side effect is that nodes are strored in self.node_map and self.explores_to_models
                 and self.views_to_explores are completed
         '''
         for globstring in globstrings:
@@ -307,7 +310,7 @@ class LookMlGrapher():
 
     def get_connected_subgraph(self, root):
         nodes = root.copy()
-        edges = self.models_to_explores.copy()
+        edges = self.explores_to_models.copy()
         edges.extend(self.views_to_explores.copy())
         edges.extend(self.explores_to_explores.copy())
         edges.extend(self.views_to_views.copy())
