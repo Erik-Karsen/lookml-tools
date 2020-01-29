@@ -1,5 +1,6 @@
 '''
     grapher: creates an image showing the relationship among the models, explores, views and tables
+
     Authors:
             Carl Anderson (carl.anderson@weightwatchers.com)
 '''
@@ -36,6 +37,7 @@ class LookMlGrapher():
         self.config = config
 
         # list of edge pair names
+
         self.explores_to_models = []
         self.views_to_explores = []
         self.explores_to_explores = []
@@ -213,6 +215,7 @@ class LookMlGrapher():
         add them to node map and add view-->view
         extract SCHEMA.TABLE referenced by each view and
         add them to node map add table-->view
+
         Args:
             v (str): view
         Returns:
@@ -274,6 +277,7 @@ class LookMlGrapher():
                 globstrings (list): list of globstrings
             Returns:
                 nothing but side effect is that nodes are strored in self.node_map and self.explores_to_models
+
                 and self.views_to_explores are completed
         '''
         for globstring in globstrings:
@@ -315,6 +319,7 @@ class LookMlGrapher():
         edges.extend(self.explores_to_explores.copy())
         edges.extend(self.views_to_views.copy())
         edges.extend(self.tables_to_views.copy())
+
         while True:
             changed = False
             for (p, c) in edges:
